@@ -90,6 +90,45 @@ configuration:
 .org $60                ; Joypad interrupt
     reti
 
+;;; [Constants] (comments from Matt)
+;;; These are for the benefit of the developer - we define a number of
+;;; constants that refer to either specific memory addresses where we
+;;; will store values, or simply values that we don't want to have to
+;;; chage everywhere each time we want to modify htem.
+	
+;;; Memory addresses
+.define VblnkFlag $E000
+.define LeftPaddleYLocation $DFF8
+.define UpHeld $DFF0
+.define DownHeld $DFE8
+.define BallXLocation $DFE0
+.define BallYLocation $DFD8
+.define RightPaddleYLocation $DFD0
+.define BallDirection $DFC8
+.define NewBallDirection $DFC0
+.define FirstRun $DFB0
+	
+;;; Movement and speed constants
+.define Speed 1
+.define Up 1
+.define Down 2
+.define Left 4
+.define Right 8
+.define UpLeft 5
+.define UpRight 9
+.define DownLeft 6
+.define DownRight 10
+	
+;;; Paddle X co-ordinates and offsets
+.define LeftPaddleXLocation $12
+.define RightPaddleXLocation $96
+.define PaddleFrontOffset 4
+.define LeftPaddleXFront LeftPaddleXLocation + PaddleFrontOffset
+.define RightPaddleXFront RightPaddleXLocation + (PaddleFrontOffset / 2)
+	
+;;; Ball offset
+.define BallMiddleOffset 3
+
 ;;; [RAM setup] (comments from Matt)
 ;;; Now we gain control of the runtime. We need to configure some additional options
 ;;; to do with the LCD display, as well as put together our sprites.
@@ -113,7 +152,7 @@ boot:
     ;; 1: object (aka sprite) display (1 = on)
     ;; 0: bg & window display (1 = on)
     ld hl, $FF40
-    ld (hl), %10011011
+    ld (hl), %00011011
 
     ;; palette configuration
     ld a, %11100100        ; default value (11 darkest, 00 lightest, etc)
@@ -122,43 +161,10 @@ boot:
     ldh ($48), a        ; palette 1 for sprites (OBP0)
     ldh ($49), a         ; palette 2 for sprites (OBP1)
 
-;;; [Constants] (comments from Matt)
-;;; These are for the benefit of the developer - we define a number of
-;;; constants that refer to either specific memory addresses where we
-;;; will store values, or simply values that we don't want to have to
-;;; chage everywhere each time we want to modify htem.
+    call initialise_memory
 	
-;;; Memory addresses
-.define VblnkFlag $E000
-.define LeftPaddleYLocation $DFF8
-.define UpHeld $DFF0
-.define DownHeld $DFE8
-.define BallXLocation $DFE0
-.define BallYLocation $DFD8
-.define RightPaddleYLocation $DFD0
-.define BallDirection $DFC8
-.define NewBallDirection $DFC0
-	
-;;; Movement and speed constants
-.define Speed 1
-.define Up 1
-.define Down 2
-.define Left 4
-.define Right 8
-.define UpLeft 5
-.define UpRight 9
-.define DownLeft 6
-.define DownRight 10
-	
-;;; Paddle X co-ordinates and offsets
-.define LeftPaddleXLocation $12
-.define RightPaddleXLocation $96
-.define PaddleFrontOffset 4
-.define LeftPaddleXFront LeftPaddleXLocation + PaddleFrontOffset
-.define RightPaddleXFront RightPaddleXLocation + (PaddleFrontOffset / 2)
-	
-;;; Ball offset
-.define BallMiddleOffset 3
+    ld hl, $FF40
+    ld (hl), %10011011 		; Enable the display
 
 ;;; [Global variables] (comments from Matt)
 ;;; DarbPong needs to keep track of multiple different variables.
@@ -166,6 +172,9 @@ boot:
     ld a, 0
     ld (VblnkFlag), a 		; Used in main to decide if we have to process the next frame's logic
 
+    ld a, 1
+    ld (FirstRun), a 		; Used in vblank to decide if we need to load data
+	
     ld a, 64
     ld (LeftPaddleYLocation), a	; Starting Y co-ordinate for left paddle
 
@@ -187,6 +196,30 @@ boot:
     call main 			; Go to our main loop
 
 ;;; [Loading sprite data] (comments from Matt)
+;;; Clear oam
+clear_oam:
+    ld hl, $FEA0
+
+clear_oam_loop:
+    dec hl
+    ld (hl), $0
+    ld a, $FD
+    cp h
+    jr nz, clear_oam_loop
+    ret
+
+;;; Clear VRAM
+clear_vram:
+    ld hl, $9800
+
+clear_vram_loop:
+    dec hl
+    ld (hl), $0
+    ld a, $7F
+    cp h
+    jr nz, clear_vram_loop
+    ret
+	
 load_tile:
 ;;; There's faster ways to do this (DMA etc.) but this will do
 ;;; We first to go the beginning of video ram, and then write our
@@ -301,6 +334,7 @@ load_tile:
 ;;; The next functions deal with 'rendering', which is just a grandiose way of saying
 ;;; we write information to the object memory, stating the x/y co-ordinates of each
 ;;; sprite to display, as well as the index of the sprite in VRAM.
+
 	
 ;;; Fancy bg_display code from feeb's example - populates 9FFF through 9C00 (bg memory) with zeroes,
 ;;; which works to display our flat black background in this case.
@@ -342,7 +376,8 @@ ball_render:
 
 left_bat_render:
 ;;; As above, but with sprite index 2 and the left paddle location
-    add hl, bc
+    ld hl, $FE04 		; Start of ORAM
+    ld bc, $1			; Helper value for moving one byte at a time
     ld a, (LeftPaddleYLocation)
     ld (hl), a
     add hl, bc
@@ -355,8 +390,8 @@ left_bat_render:
 
 right_bat_render:
 ;;; As above, but with sprite index 2 and the right paddle location
-    add hl, bc
-    ld bc, $1
+    ld hl, $FE08 		; Start of ORAM
+    ld bc, $1			; Helper value for moving one byte at a time
     ld a, (RightPaddleYLocation)
     ld (hl), a
     add hl, bc
@@ -367,20 +402,30 @@ right_bat_render:
     ld (hl), $0
     ret
 
+initialise_memory:
+    call clear_oam		; Clear out OAM if we haven't already
+    call clear_vram		; Clear out VRAM if we haven't already
+    call load_tile		; Load our sprite data into VRAM
+    call bg_display		; Background draw
+
 vblank:
 ;;; Our vblank routine, which is called just after a frame is rendered
 ;;; It is the only safe time to write to VRAM/OAM
     push af			; Push valuable register data
+    push bc
+    push de
+    push hl
 
-    call load_tile		; Load our data into VRAM (should really only do this once)
-    call bg_display		; Background draw
-    call ball_render		; Sprite darw
+    call ball_render		; Sprite draw
     call left_bat_render
     call right_bat_render
 
     ld a, 1
     ld (VblnkFlag), a		; Let main know we just ran a vblank interrupt
 
+    pop hl
+    pop de
+    pop bc
     pop af
     reti			; Return and re-enable interrupts
 
