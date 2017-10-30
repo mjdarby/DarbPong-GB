@@ -95,7 +95,7 @@ configuration:
 ;;; constants that refer to either specific memory addresses where we
 ;;; will store values, or simply values that we don't want to have to
 ;;; chage everywhere each time we want to modify htem.
-	
+
 ;;; Memory addresses
 .define VblnkFlag $E000
 .define LeftPaddleYLocation $DFF8
@@ -106,8 +106,7 @@ configuration:
 .define RightPaddleYLocation $DFD0
 .define BallDirection $DFC8
 .define NewBallDirection $DFC0
-.define FirstRun $DFB0
-	
+
 ;;; Movement and speed constants
 .define Speed 1
 .define Up 1
@@ -118,14 +117,14 @@ configuration:
 .define UpRight 9
 .define DownLeft 6
 .define DownRight 10
-	
+
 ;;; Paddle X co-ordinates and offsets
 .define LeftPaddleXLocation $12
 .define RightPaddleXLocation $96
 .define PaddleFrontOffset 4
 .define LeftPaddleXFront LeftPaddleXLocation + PaddleFrontOffset
 .define RightPaddleXFront RightPaddleXLocation + (PaddleFrontOffset / 2)
-	
+
 ;;; Ball offset
 .define BallMiddleOffset 3
 
@@ -162,7 +161,7 @@ boot:
     ldh ($49), a         ; palette 2 for sprites (OBP1)
 
     call initialise_memory
-	
+
     ld hl, $FF40
     ld (hl), %10011011 		; Enable the display
 
@@ -172,9 +171,6 @@ boot:
     ld a, 0
     ld (VblnkFlag), a 		; Used in main to decide if we have to process the next frame's logic
 
-    ld a, 1
-    ld (FirstRun), a 		; Used in vblank to decide if we need to load data
-	
     ld a, 64
     ld (LeftPaddleYLocation), a	; Starting Y co-ordinate for left paddle
 
@@ -219,7 +215,7 @@ clear_vram_loop:
     cp h
     jr nz, clear_vram_loop
     ret
-	
+
 load_tile:
 ;;; There's faster ways to do this (DMA etc.) but this will do
 ;;; We first to go the beginning of video ram, and then write our
@@ -335,7 +331,7 @@ load_tile:
 ;;; we write information to the object memory, stating the x/y co-ordinates of each
 ;;; sprite to display, as well as the index of the sprite in VRAM.
 
-	
+
 ;;; Fancy bg_display code from feeb's example - populates 9FFF through 9C00 (bg memory) with zeroes,
 ;;; which works to display our flat black background in this case.
 bg_display:
@@ -354,7 +350,7 @@ bg_d_loop:
     ret
 
 ;;; Less complicated, we now have to populate ORAM with the positions of both paddles
-;;; and the ball. Format is 
+;;; and the ball. Format is
 ;;; <Y co-ord - 1 byte>
 ;;; <X co-ord - 1 byte>
 ;;; <Sprite index in VRAM - 1 byte>
@@ -584,7 +580,7 @@ downCheck:
     xor Up
     xor Down
     ld (NewBallDirection), a
-	
+
 ;;; Checks done - undo the move if the new direction
 ;;; differs from the old direction.
 collisionDone:
@@ -599,8 +595,40 @@ skipUndo:
     ld (BallDirection), a
     ret
 
+;;; Play an awesome and not annoying sound!
+playCollisionNoise:
+    ld a, $80
+    ld hl, $FF52
+    ld (hl), a
+    dec hl
+    ld a, $11
+    ld (hl), a
+    dec hl
+    ld a, $77
+    ld (hl), a
+
+    ld a, $8E
+    ld hl, $FF10
+    ld (hl), a
+    inc hl
+    ld a, $10
+    ld (hl), a
+    inc hl
+    ld a, $F3
+    ld (hl), a
+    inc hl
+    ld a, $00
+    ld (hl), a
+    inc hl
+    ld a, $87
+    ld (hl), a
+    ret
+
 ;;; Undo Move gets called in case of collision
 undoMove:
+;;; First, some noise.
+    call playCollisionNoise
+;;; Okay now actually undo the move
     ld a, (BallDirection)
 upLeftCheckUndo:
     cp UpLeft
